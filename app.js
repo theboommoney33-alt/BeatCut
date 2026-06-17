@@ -435,9 +435,17 @@
       });
 
       // Recompute length once we know the song's duration.
+      // durationchange covers webm blobs that report Infinity on loadedmetadata
+      // and only resolve the real duration after the browser has buffered enough.
       this.audio.addEventListener('loadedmetadata', () => {
         this._recomputeDuration();
         this._refreshState();
+      });
+      this.audio.addEventListener('durationchange', () => {
+        if (isFinite(this.audio.duration) && this.audio.duration > 0) {
+          this._recomputeDuration();
+          this._refreshState();
+        }
       });
 
       // Export
