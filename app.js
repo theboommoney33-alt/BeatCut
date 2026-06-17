@@ -476,35 +476,19 @@
       }
       const videoId = idMatch[1];
 
-      $('ytStatus').textContent = 'Fetching stream info…';
       $('ytStatus').className = 'detect-status working';
       $('ytLoadBtn').disabled = true;
 
       try {
-        // Piped is a CORS-friendly YouTube proxy designed for browser use.
-        const infoRes = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
-        if (!infoRes.ok) throw new Error(`Stream API ${infoRes.status}`);
-        const data = await infoRes.json();
-        if (data.error) throw new Error(data.error);
-
-        const audioStreams = (data.audioStreams || []).sort((a, b) => b.bitrate - a.bitrate);
-        if (!audioStreams.length) throw new Error('No audio streams found');
-        const best = audioStreams[0];
-
-        $('ytStatus').textContent = 'Downloading audio…';
-        const audioRes = await fetch(best.url);
-        if (!audioRes.ok) throw new Error(`Download ${audioRes.status}`);
-        const blob = await audioRes.blob();
+        const { blob, title } = await this._fetchYTAudio(videoId);
 
         if (this.audio.src && this.audio.src.startsWith('blob:')) URL.revokeObjectURL(this.audio.src);
-        const blobUrl = URL.createObjectURL(blob);
-        this.audio.src = blobUrl;
+        this.audio.src = URL.createObjectURL(blob);
         this.audioFile = blob;
 
-        $('audioName').textContent = data.title || url;
+        $('audioName').textContent = title || url;
         $('detectBpmBtn').disabled = false;
         $('ytStatus').textContent = 'Loaded! Detecting BPM…';
-        $('ytStatus').className = 'detect-status working';
         this._refreshState();
         this.detectBPM();
       } catch (err) {
@@ -513,6 +497,50 @@
       } finally {
         $('ytLoadBtn').disabled = false;
       }
+    }
+
+    async _fetchYTAudio(videoId) {
+      // Try several Piped instances in order. Some may be down or rate-limiting.
+      const PIPED = [
+        'https://pipedapi.kavin.rocks',
+        'https://piped-api.garudalinux.org',
+        'https://pipedapi.in.projectsegfau.lt',
+      ];
+
+      for (const base of PIPED) {
+        $('ytStatus').textContent = `Fetching stream info (${new URL(base).hostname})…`;
+        let data;
+        try {
+          const r = await fetch(`${base}/streams/${videoId}`, { signal: AbortSignal.timeout(10000) });
+          if (!r.ok) continue;
+          data = await r.json();
+          if (data.error) continue;
+        } catch (_) { continue; }
+
+        const streams = (data.audioStreams || []).sort((a, b) => b.bitrate - a.bitrate);
+        if (!streams.length) continue;
+        const streamUrl = streams[0].url;
+
+        // Piped may return a same-host proxy URL (CORS OK) or a YouTube CDN URL (no CORS).
+        // If CDN, route through corsproxy.io so the browser can fetch it.
+        const isCDN = /googlevideo\.com|youtube\.com\/videoplayback/.test(streamUrl);
+        const candidates = isCDN
+          ? [`https://corsproxy.io/?url=${encodeURIComponent(streamUrl)}`, streamUrl]
+          : [streamUrl];
+
+        for (const fetchUrl of candidates) {
+          try {
+            $('ytStatus').textContent = isCDN ? 'Downloading via CORS proxy…' : 'Downloading audio…';
+            const r = await fetch(fetchUrl, { signal: AbortSignal.timeout(90000) });
+            if (!r.ok) continue;
+            const blob = await r.blob();
+            if (blob.size < 8192) continue; // guard against error HTML bodies
+            return { blob, title: data.title };
+          } catch (_) { continue; }
+        }
+      }
+
+      throw new Error('All sources failed — check your URL or use file upload');
     }
 
     /* ---------- File handlers ---------- */
