@@ -398,12 +398,11 @@
       // Video length
       $('lengthInput').addEventListener('input', (e) => {
         const v = parseFloat(e.target.value);
+        if (!(v > 0)) return;
         this.durationMode = 'custom';
-        if (v > 0) {
-          this.duration = v;
-          if (this.clock > this.duration) this.clock = this.duration;
-        }
-        this._updateLengthUI();
+        this.duration = v;
+        if (this.clock > this.duration) this.clock = this.duration;
+        this._fitClipsToLength(v);
       });
       $('len1x').addEventListener('click', () => {
         this.durationMode = 'passes'; this.passesTarget = 1; this._recomputeDuration();
@@ -416,7 +415,9 @@
           $('lengthInfo').textContent = 'Add a song first to match its length.';
           return;
         }
-        this.durationMode = 'song'; this._recomputeDuration();
+        this.durationMode = 'song';
+        this._recomputeDuration();
+        this._fitClipsToLength(this.audio.duration);
       });
 
       // Tap tempo
@@ -785,6 +786,20 @@
     _updateCutLabel() {
       $('cutSeconds').textContent = `each clip ≈ ${this.engine.secondsPerCut.toFixed(2)}s`;
       this._recomputeDuration();
+    }
+
+    // Back-calculate beatsPerCut so clips evenly fill targetSecs.
+    // len1x/len2x go the other direction (duration derives from beats);
+    // this is for when the user sets a target time and wants beats to follow.
+    _fitClipsToLength(targetSecs) {
+      const count = this.library.count;
+      if (count <= 0 || !(targetSecs > 0) || !(this.engine.bpm > 0)) return;
+      const secPerClip = targetSecs / (count * this.passesTarget);
+      const beats = Math.max(1, Math.round(secPerClip * this.engine.bpm / 60));
+      this.engine.beatsPerCut = beats;
+      $('beatsPerCut').value = beats;
+      $('beatsLabel').textContent = beats;
+      this._updateCutLabel();
     }
 
     _audioPosFor(t) {
