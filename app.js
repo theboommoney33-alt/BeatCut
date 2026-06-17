@@ -500,22 +500,39 @@
     }
 
     async _fetchYTAudio(videoId) {
-      // Invidious with local=true rewrites stream URLs to proxy through its own domain.
-      // This avoids the IP-signed YouTube CDN URLs that Piped returns (which are blocked
-      // by CORS and rejected by YouTube when fetched from a different IP).
-      const INVIDIOUS = [
-        'https://invidious.privacyredirect.com',
-        'https://yt.artemislena.eu',
-        'https://invidious.nerdvpn.de',
-        'https://inv.tux.pizza',
-        'https://iv.melmac.space',
-        'https://invidious.io',
-        'https://invidious.fdn.fr',
-      ];
+      const isCDN = url => /googlevideo\.com|youtube\.com\/videoplayback/.test(url);
+
+      // Fetch live Invidious instances that advertise CORS + API support, sorted by health.
+      // Falls back to hardcoded list if the meta-API is unreachable.
+      $('ytStatus').textContent = 'Finding available instances…';
+      let invidiousInstances = [];
+      try {
+        const r = await fetch('https://api.invidious.io/instances.json?sort_by=health', {
+          signal: AbortSignal.timeout(6000),
+        });
+        if (r.ok) {
+          const list = await r.json();
+          invidiousInstances = list
+            .filter(([, info]) => info.api && info.cors && info.uri?.startsWith('https'))
+            .slice(0, 6)
+            .map(([, info]) => info.uri.replace(/\/$/, ''));
+        }
+      } catch (_) {}
+
+      if (!invidiousInstances.length) {
+        invidiousInstances = [
+          'https://invidious.privacyredirect.com',
+          'https://yt.artemislena.eu',
+          'https://inv.tux.pizza',
+          'https://invidious.io',
+          'https://invidious.fdn.fr',
+        ];
+      }
 
       let lastError = 'no instances responded';
 
-      for (const base of INVIDIOUS) {
+      // --- Invidious with local=true (proxied URLs, CORS-safe) ---
+      for (const base of invidiousInstances) {
         const host = new URL(base).hostname;
         $('ytStatus').textContent = `Trying ${host}…`;
         let data;
@@ -528,22 +545,53 @@
           if (data.error) { lastError = `${host}: ${data.error}`; continue; }
         } catch (e) { lastError = `${host}: ${e.message}`; continue; }
 
-        const audioStreams = (data.adaptiveFormats || [])
-          .filter(f => f.type && f.type.startsWith('audio/'))
+        const streams = (data.adaptiveFormats || [])
+          .filter(f => f.type?.startsWith('audio/'))
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+        if (!streams.length) { lastError = `${host}: no audio streams`; continue; }
 
-        if (!audioStreams.length) { lastError = `${host}: no audio streams`; continue; }
-
-        const streamUrl = audioStreams[0].url;
-        // If local=true didn't proxy the URL, the CDN URL will be IP-signed and unusable.
-        if (/googlevideo\.com/.test(streamUrl)) { lastError = `${host}: returned unproxied CDN URL`; continue; }
+        const streamUrl = streams[0].url;
+        if (isCDN(streamUrl)) { lastError = `${host}: returned unproxied CDN URL`; continue; }
 
         $('ytStatus').textContent = `Downloading from ${host}…`;
         try {
           const r = await fetch(streamUrl, { signal: AbortSignal.timeout(90000) });
           if (!r.ok) { lastError = `${host}: stream HTTP ${r.status}`; continue; }
           const blob = await r.blob();
-          if (blob.size < 8192) { lastError = `${host}: response too small (${blob.size}B)`; continue; }
+          if (blob.size < 8192) { lastError = `${host}: too small (${blob.size}B)`; continue; }
+          return { blob, title: data.title };
+        } catch (e) { lastError = `${host}: ${e.message}`; continue; }
+      }
+
+      // --- Piped fallback (only usable if instance returns a proxied, non-CDN URL) ---
+      const PIPED = [
+        'https://pipedapi.kavin.rocks',
+        'https://piped-api.garudalinux.org',
+        'https://pipedapi.in.projectsegfau.lt',
+      ];
+      for (const base of PIPED) {
+        const host = new URL(base).hostname;
+        $('ytStatus').textContent = `Trying ${host}…`;
+        let data;
+        try {
+          const r = await fetch(`${base}/streams/${videoId}`, { signal: AbortSignal.timeout(12000) });
+          if (!r.ok) { lastError = `${host}: HTTP ${r.status}`; continue; }
+          data = await r.json();
+          if (data.error) { lastError = `${host}: ${data.error}`; continue; }
+        } catch (e) { lastError = `${host}: ${e.message}`; continue; }
+
+        const streams = (data.audioStreams || []).sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
+        if (!streams.length) { lastError = `${host}: no audio streams`; continue; }
+
+        const streamUrl = streams[0].url;
+        if (isCDN(streamUrl)) { lastError = `${host}: returned unproxied CDN URL`; continue; }
+
+        $('ytStatus').textContent = `Downloading from ${host}…`;
+        try {
+          const r = await fetch(streamUrl, { signal: AbortSignal.timeout(90000) });
+          if (!r.ok) { lastError = `${host}: stream HTTP ${r.status}`; continue; }
+          const blob = await r.blob();
+          if (blob.size < 8192) { lastError = `${host}: too small (${blob.size}B)`; continue; }
           return { blob, title: data.title };
         } catch (e) { lastError = `${host}: ${e.message}`; continue; }
       }
