@@ -369,6 +369,7 @@
       // Song source tabs
       $('songTabFile').addEventListener('click', () => this._setSongTab('file'));
       $('songTabYT').addEventListener('click', () => this._setSongTab('yt'));
+      this._checkServerHealth();
       $('ytLoadBtn').addEventListener('click', () => this._onYouTubeURL($('ytUrlInput').value.trim()));
       $('ytUrlInput').addEventListener('keydown', (e) => {
         if (e.key === 'Enter') this._onYouTubeURL($('ytUrlInput').value.trim());
@@ -463,6 +464,22 @@
       $('songPanelYT').hidden = tab !== 'yt';
       $('songTabFile').classList.toggle('active', tab === 'file');
       $('songTabYT').classList.toggle('active', tab === 'yt');
+      if (tab === 'yt') this._checkServerHealth();
+    }
+
+    async _checkServerHealth() {
+      const dot = $('serverDot');
+      const label = $('serverStatusText');
+      try {
+        const r = await fetch('http://localhost:7474/health', { signal: AbortSignal.timeout(2000) });
+        if (r.ok) {
+          dot.className = 'server-dot online';
+          label.textContent = 'Local server: online — fast downloads via yt-dlp';
+          return;
+        }
+      } catch (_) {}
+      dot.className = 'server-dot offline';
+      label.textContent = 'Local server offline — run: docker-compose up -d in editor/backend/';
     }
 
     async _onYouTubeURL(url) {
