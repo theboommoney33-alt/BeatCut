@@ -218,6 +218,25 @@ html, body {
 }
 #exportLabel { color: var(--muted); font-size: 12px; white-space: nowrap; }
 
+/* ---------- Song source tabs ---------- */
+.song-tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.song-tab { flex: 1; text-align: center; }
+
+/* ---------- YouTube input ---------- */
+.yt-row { display: flex; gap: 8px; align-items: center; padding: 6px 0 4px; }
+.yt-input {
+  flex: 1;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 10px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.yt-input::placeholder { color: var(--muted); }
+.yt-input:focus { outline: none; border-color: var(--accent-2); }
+
 /* scrollbar */
 .inputs::-webkit-scrollbar { width: 8px; }
 .inputs::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }

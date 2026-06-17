@@ -366,6 +366,14 @@
       this._enableDrop($('audioDrop'), (files) => this._onAudioFile(files[0]), 'audio');
       $('detectBpmBtn').addEventListener('click', () => this.detectBPM());
 
+      // Song source tabs
+      $('songTabFile').addEventListener('click', () => this._setSongTab('file'));
+      $('songTabYT').addEventListener('click', () => this._setSongTab('yt'));
+      $('ytLoadBtn').addEventListener('click', () => this._onYouTubeURL($('ytUrlInput').value.trim()));
+      $('ytUrlInput').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') this._onYouTubeURL($('ytUrlInput').value.trim());
+      });
+
       // Order tools
       $('shuffleBtn').addEventListener('click', () => { this.library.shuffle(); this._renderList(); });
       $('reverseBtn').addEventListener('click', () => { this.library.reverse(); this._renderList(); });
@@ -447,6 +455,68 @@
         });
         if (files.length) handler(files);
       });
+    }
+
+    /* ---------- Song source tabs ---------- */
+    _setSongTab(tab) {
+      $('songPanelFile').hidden = tab !== 'file';
+      $('songPanelYT').hidden = tab !== 'yt';
+      $('songTabFile').classList.toggle('active', tab === 'file');
+      $('songTabYT').classList.toggle('active', tab === 'yt');
+    }
+
+    async _onYouTubeURL(url) {
+      if (!url) return;
+      if (!/^https?:\/\/(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(url)) {
+        $('ytStatus').textContent = 'Enter a valid YouTube watch URL.';
+        $('ytStatus').className = 'detect-status';
+        return;
+      }
+
+      $('ytStatus').textContent = 'Contacting cobalt.tools…';
+      $('ytStatus').className = 'detect-status working';
+      $('ytLoadBtn').disabled = true;
+
+      try {
+        const apiRes = await fetch('https://api.cobalt.tools/', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ url, downloadMode: 'audio', audioFormat: 'mp3' }),
+        });
+        if (!apiRes.ok) throw new Error(`API error ${apiRes.status}`);
+        const data = await apiRes.json();
+        if (data.status === 'error') throw new Error(data.error?.code || 'cobalt error');
+        if (!data.url) throw new Error('No audio URL returned');
+
+        $('ytStatus').textContent = 'Downloading audio…';
+        const audioRes = await fetch(data.url);
+        if (!audioRes.ok) throw new Error(`Download error ${audioRes.status}`);
+        const blob = await audioRes.blob();
+
+        if (this.audio.src && this.audio.src.startsWith('blob:')) URL.revokeObjectURL(this.audio.src);
+        const blobUrl = URL.createObjectURL(blob);
+        this.audio.src = blobUrl;
+        this.audioFile = blob;
+
+        // Fetch the video title via oEmbed for a nice label
+        let label = url;
+        try {
+          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
+          if (oembedRes.ok) { const meta = await oembedRes.json(); label = meta.title || label; }
+        } catch (_) {}
+
+        $('audioName').textContent = label;
+        $('detectBpmBtn').disabled = false;
+        $('ytStatus').textContent = 'Loaded! Detecting BPM…';
+        $('ytStatus').className = 'detect-status working';
+        this._refreshState();
+        this.detectBPM();
+      } catch (err) {
+        $('ytStatus').textContent = `Failed: ${err.message}`;
+        $('ytStatus').className = 'detect-status';
+      } finally {
+        $('ytLoadBtn').disabled = false;
+      }
     }
 
     /* ---------- File handlers ---------- */

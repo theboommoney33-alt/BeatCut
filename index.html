@@ -51,13 +51,26 @@
         <div class="card-head">
           <h2><span class="step">2</span> Song</h2>
         </div>
-        <label class="dropzone slim" id="audioDrop">
-          <input type="file" id="audioInput" accept="audio/*" hidden />
-          <div class="dz-inner">
-            <div class="dz-icon">♪</div>
-            <div class="dz-text" id="audioName">Click or drop an audio file</div>
+        <div class="song-tabs">
+          <button class="btn tiny song-tab active" id="songTabFile">Upload File</button>
+          <button class="btn tiny song-tab" id="songTabYT">YouTube URL</button>
+        </div>
+        <div id="songPanelFile">
+          <label class="dropzone slim" id="audioDrop">
+            <input type="file" id="audioInput" accept="audio/*" hidden />
+            <div class="dz-inner">
+              <div class="dz-icon">♪</div>
+              <div class="dz-text" id="audioName">Click or drop an audio file</div>
+            </div>
+          </label>
+        </div>
+        <div id="songPanelYT" hidden>
+          <div class="yt-row">
+            <input type="text" id="ytUrlInput" class="yt-input" placeholder="https://youtube.com/watch?v=…" />
+            <button class="btn" id="ytLoadBtn">Load</button>
           </div>
-        </label>
+          <div class="detect-status" id="ytStatus">Paste a YouTube link and click Load.</div>
+        </div>
         <div class="detect-row">
           <button class="btn tiny" id="detectBpmBtn" disabled>🔍 Auto-detect BPM</button>
           <span class="detect-status" id="detectStatus">BPM is found automatically when you add a song.</span>
