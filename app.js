@@ -467,30 +467,33 @@
 
     async _onYouTubeURL(url) {
       if (!url) return;
-      if (!/^https?:\/\/(www\.)?(youtube\.com\/watch|youtu\.be\/)/.test(url)) {
+
+      const idMatch = url.match(/(?:v=|youtu\.be\/)([^&?#]{11})/);
+      if (!idMatch) {
         $('ytStatus').textContent = 'Enter a valid YouTube watch URL.';
         $('ytStatus').className = 'detect-status';
         return;
       }
+      const videoId = idMatch[1];
 
-      $('ytStatus').textContent = 'Contacting cobalt.tools…';
+      $('ytStatus').textContent = 'Fetching stream info…';
       $('ytStatus').className = 'detect-status working';
       $('ytLoadBtn').disabled = true;
 
       try {
-        const apiRes = await fetch('https://api.cobalt.tools/', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
-          body: JSON.stringify({ url, downloadMode: 'audio', audioFormat: 'mp3' }),
-        });
-        if (!apiRes.ok) throw new Error(`API error ${apiRes.status}`);
-        const data = await apiRes.json();
-        if (data.status === 'error') throw new Error(data.error?.code || 'cobalt error');
-        if (!data.url) throw new Error('No audio URL returned');
+        // Piped is a CORS-friendly YouTube proxy designed for browser use.
+        const infoRes = await fetch(`https://pipedapi.kavin.rocks/streams/${videoId}`);
+        if (!infoRes.ok) throw new Error(`Stream API ${infoRes.status}`);
+        const data = await infoRes.json();
+        if (data.error) throw new Error(data.error);
+
+        const audioStreams = (data.audioStreams || []).sort((a, b) => b.bitrate - a.bitrate);
+        if (!audioStreams.length) throw new Error('No audio streams found');
+        const best = audioStreams[0];
 
         $('ytStatus').textContent = 'Downloading audio…';
-        const audioRes = await fetch(data.url);
-        if (!audioRes.ok) throw new Error(`Download error ${audioRes.status}`);
+        const audioRes = await fetch(best.url);
+        if (!audioRes.ok) throw new Error(`Download ${audioRes.status}`);
         const blob = await audioRes.blob();
 
         if (this.audio.src && this.audio.src.startsWith('blob:')) URL.revokeObjectURL(this.audio.src);
@@ -498,14 +501,7 @@
         this.audio.src = blobUrl;
         this.audioFile = blob;
 
-        // Fetch the video title via oEmbed for a nice label
-        let label = url;
-        try {
-          const oembedRes = await fetch(`https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`);
-          if (oembedRes.ok) { const meta = await oembedRes.json(); label = meta.title || label; }
-        } catch (_) {}
-
-        $('audioName').textContent = label;
+        $('audioName').textContent = data.title || url;
         $('detectBpmBtn').disabled = false;
         $('ytStatus').textContent = 'Loaded! Detecting BPM…';
         $('ytStatus').className = 'detect-status working';
