@@ -502,6 +502,20 @@
     async _fetchYTAudio(videoId) {
       const isCDN = url => /googlevideo\.com|youtube\.com\/videoplayback/.test(url);
 
+      // Try local yt-dlp server first (start it with: cd backend && docker-compose up -d)
+      try {
+        $('ytStatus').textContent = 'Trying local server…';
+        const lr = await fetch(`http://localhost:7474/audio?v=${videoId}`, {
+          signal: AbortSignal.timeout(60000),
+        });
+        if (lr.ok) {
+          const blob = await lr.blob();
+          if (blob.size > 8192) {
+            return { blob, title: lr.headers.get('X-Title') || videoId };
+          }
+        }
+      } catch (_) {}
+
       // Fetch live Invidious instances that advertise CORS + API support, sorted by health.
       // Falls back to hardcoded list if the meta-API is unreachable.
       $('ytStatus').textContent = 'Finding available instances…';

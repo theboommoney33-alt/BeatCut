@@ -1,0 +1,6 @@
+services:
+  ytaudio:
+    build: .
+    ports:
+      - "7474:7474"
+    restart: unless-stopped
