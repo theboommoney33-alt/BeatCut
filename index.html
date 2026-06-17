@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BeatCut — Beat-Synced Video Editor</title>
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">▶</span>
+      <h1>BeatCut</h1>
+      <span class="tagline">cut your photos &amp; clips to the beat</span>
+    </div>
+    <div class="topbar-status" id="statusText">Add media and a song to begin.</div>
+  </header>
+
+  <main class="layout">
+    <!-- LEFT: inputs -->
+    <section class="panel inputs">
+      <!-- 1. Media -->
+      <div class="card">
+        <div class="card-head">
+          <h2><span class="step">1</span> Photos &amp; Videos</h2>
+          <span class="count" id="mediaCount">0 items</span>
+        </div>
+        <label class="dropzone" id="mediaDrop">
+          <input type="file" id="mediaInput" accept="image/*,video/*" multiple hidden />
+          <div class="dz-inner">
+            <div class="dz-icon">＋</div>
+            <div class="dz-text">Click or drop images &amp; videos</div>
+            <div class="dz-sub">jpg, png, gif, mp4, webm, mov…</div>
+          </div>
+        </label>
+
+        <div class="order-tools">
+          <span class="hint">Drag to reorder · this is the play order</span>
+          <div class="order-buttons">
+            <button class="btn tiny" id="shuffleBtn" title="Random order">🔀 Shuffle</button>
+            <button class="btn tiny" id="reverseBtn" title="Reverse order">⇅ Reverse</button>
+            <button class="btn tiny danger" id="clearMediaBtn" title="Remove all">🗑 Clear</button>
+          </div>
+        </div>
+
+        <ul class="media-list" id="mediaList"></ul>
+      </div>
+
+      <!-- 2. Song -->
+      <div class="card">
+        <div class="card-head">
+          <h2><span class="step">2</span> Song</h2>
+        </div>
+        <label class="dropzone slim" id="audioDrop">
+          <input type="file" id="audioInput" accept="audio/*" hidden />
+          <div class="dz-inner">
+            <div class="dz-icon">♪</div>
+            <div class="dz-text" id="audioName">Click or drop an audio file</div>
+          </div>
+        </label>
+        <div class="detect-row">
+          <button class="btn tiny" id="detectBpmBtn" disabled>🔍 Auto-detect BPM</button>
+          <span class="detect-status" id="detectStatus">BPM is found automatically when you add a song.</span>
+        </div>
+      </div>
+
+      <!-- 3. BPM + frequency -->
+      <div class="card">
+        <div class="card-head">
+          <h2><span class="step">3</span> Beat &amp; Cuts</h2>
+        </div>
+
+        <div class="field-row">
+          <div class="field">
+            <label for="bpmInput">BPM</label>
+            <input type="number" id="bpmInput" min="20" max="400" step="0.1" value="120" />
+          </div>
+          <button class="btn tap" id="tapBtn" title="Tap along to find the BPM">TAP<br/><small>tempo</small></button>
+        </div>
+
+        <div class="field">
+          <label for="beatsPerCut">Cut every <strong id="beatsLabel">8</strong> beats</label>
+          <input type="range" id="beatsPerCut" min="1" max="64" step="1" value="8" />
+          <div class="range-meta">
+            <span>1</span>
+            <span id="cutSeconds">each clip ≈ 4.00s</span>
+            <span>64</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="lengthInput">Video length (seconds)</label>
+          <input type="number" id="lengthInput" min="0.5" step="0.1" />
+          <div class="range-meta">
+            <span id="lengthInfo">0:00 · ≈ 0.0 passes · 0 cuts</span>
+          </div>
+          <div class="length-buttons">
+            <button class="btn tiny" id="len1x">1× photos</button>
+            <button class="btn tiny" id="len2x">2× photos</button>
+            <button class="btn tiny" id="lenSong">⏱ Match song</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="aspect">Output shape</label>
+          <select id="aspect">
+            <option value="16:9">Landscape 16:9 (1280×720)</option>
+            <option value="9:16">Vertical 9:16 (720×1280)</option>
+            <option value="1:1">Square 1:1 (720×720)</option>
+            <option value="4:5">Portrait 4:5 (720×900)</option>
+          </select>
+        </div>
+
+        <div class="field checkbox">
+          <label><input type="checkbox" id="punchFx" /> Beat punch zoom on the beat (off by default — leaves media untouched)</label>
+        </div>
+      </div>
+    </section>
+
+    <!-- RIGHT: preview + output -->
+    <section class="panel stage">
+      <div class="preview-wrap">
+        <canvas id="canvas" width="1280" height="720"></canvas>
+        <div class="beat-dot" id="beatDot"></div>
+        <div class="empty-overlay" id="emptyOverlay">
+          <p>Your beat-cut preview shows here</p>
+          <span>Add at least one photo/video and a song</span>
+        </div>
+      </div>
+
+      <div class="transport">
+        <button class="btn primary" id="playBtn" disabled>▶ Play</button>
+        <button class="btn" id="stopBtn" disabled>■ Stop</button>
+        <div class="scrub">
+          <input type="range" id="seek" min="0" max="1000" value="0" step="1" disabled />
+          <span class="time"><span id="curTime">0:00</span> / <span id="totTime">0:00</span></span>
+        </div>
+      </div>
+
+      <div class="export-bar">
+        <button class="btn export" id="exportBtn" disabled>⬇ Export Video</button>
+        <span class="export-note" id="exportNote">Exports a .webm recorded in real time (plays through once).</span>
+        <a id="downloadLink" class="btn ghost" hidden>Save file</a>
+      </div>
+      <div class="progress" id="exportProgress" hidden>
+        <div class="progress-bar" id="exportBar"></div>
+        <span id="exportLabel">Recording…</span>
+      </div>
+    </section>
+  </main>
+
+  <script src="js/app.js"></script>
+</body>
+</html>
