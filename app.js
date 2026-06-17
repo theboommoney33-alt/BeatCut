@@ -500,44 +500,44 @@
     }
 
     async _fetchYTAudio(videoId) {
-      // Try several Piped instances in order. Some may be down or rate-limiting.
-      const PIPED = [
-        'https://pipedapi.kavin.rocks',
-        'https://piped-api.garudalinux.org',
-        'https://pipedapi.in.projectsegfau.lt',
+      // Invidious with local=true rewrites stream URLs to proxy through its own domain.
+      // This avoids the IP-signed YouTube CDN URLs that Piped returns (which are blocked
+      // by CORS and rejected by YouTube when fetched from a different IP).
+      const INVIDIOUS = [
+        'https://invidious.privacyredirect.com',
+        'https://yt.artemislena.eu',
+        'https://invidious.nerdvpn.de',
+        'https://inv.tux.pizza',
+        'https://iv.melmac.space',
       ];
 
-      for (const base of PIPED) {
-        $('ytStatus').textContent = `Fetching stream info (${new URL(base).hostname})…`;
+      for (const base of INVIDIOUS) {
+        const host = new URL(base).hostname;
+        $('ytStatus').textContent = `Fetching from ${host}…`;
         let data;
         try {
-          const r = await fetch(`${base}/streams/${videoId}`, { signal: AbortSignal.timeout(10000) });
+          const r = await fetch(`${base}/api/v1/videos/${videoId}?local=true`, {
+            signal: AbortSignal.timeout(10000),
+          });
           if (!r.ok) continue;
           data = await r.json();
           if (data.error) continue;
         } catch (_) { continue; }
 
-        const streams = (data.audioStreams || []).sort((a, b) => b.bitrate - a.bitrate);
-        if (!streams.length) continue;
-        const streamUrl = streams[0].url;
+        const audioStreams = (data.adaptiveFormats || [])
+          .filter(f => f.type && f.type.startsWith('audio/'))
+          .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
 
-        // Piped may return a same-host proxy URL (CORS OK) or a YouTube CDN URL (no CORS).
-        // If CDN, route through corsproxy.io so the browser can fetch it.
-        const isCDN = /googlevideo\.com|youtube\.com\/videoplayback/.test(streamUrl);
-        const candidates = isCDN
-          ? [`https://corsproxy.io/?url=${encodeURIComponent(streamUrl)}`, streamUrl]
-          : [streamUrl];
+        if (!audioStreams.length) continue;
 
-        for (const fetchUrl of candidates) {
-          try {
-            $('ytStatus').textContent = isCDN ? 'Downloading via CORS proxy…' : 'Downloading audio…';
-            const r = await fetch(fetchUrl, { signal: AbortSignal.timeout(90000) });
-            if (!r.ok) continue;
-            const blob = await r.blob();
-            if (blob.size < 8192) continue; // guard against error HTML bodies
-            return { blob, title: data.title };
-          } catch (_) { continue; }
-        }
+        $('ytStatus').textContent = `Downloading audio from ${host}…`;
+        try {
+          const r = await fetch(audioStreams[0].url, { signal: AbortSignal.timeout(90000) });
+          if (!r.ok) continue;
+          const blob = await r.blob();
+          if (blob.size < 8192) continue;
+          return { blob, title: data.title };
+        } catch (_) { continue; }
       }
 
       throw new Error('All sources failed — check your URL or use file upload');
