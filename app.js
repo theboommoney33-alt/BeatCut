@@ -509,38 +509,46 @@
         'https://invidious.nerdvpn.de',
         'https://inv.tux.pizza',
         'https://iv.melmac.space',
+        'https://invidious.io',
+        'https://invidious.fdn.fr',
       ];
+
+      let lastError = 'no instances responded';
 
       for (const base of INVIDIOUS) {
         const host = new URL(base).hostname;
-        $('ytStatus').textContent = `Fetching from ${host}…`;
+        $('ytStatus').textContent = `Trying ${host}…`;
         let data;
         try {
           const r = await fetch(`${base}/api/v1/videos/${videoId}?local=true`, {
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(12000),
           });
-          if (!r.ok) continue;
+          if (!r.ok) { lastError = `${host}: HTTP ${r.status}`; continue; }
           data = await r.json();
-          if (data.error) continue;
-        } catch (_) { continue; }
+          if (data.error) { lastError = `${host}: ${data.error}`; continue; }
+        } catch (e) { lastError = `${host}: ${e.message}`; continue; }
 
         const audioStreams = (data.adaptiveFormats || [])
           .filter(f => f.type && f.type.startsWith('audio/'))
           .sort((a, b) => (b.bitrate || 0) - (a.bitrate || 0));
 
-        if (!audioStreams.length) continue;
+        if (!audioStreams.length) { lastError = `${host}: no audio streams`; continue; }
 
-        $('ytStatus').textContent = `Downloading audio from ${host}…`;
+        const streamUrl = audioStreams[0].url;
+        // If local=true didn't proxy the URL, the CDN URL will be IP-signed and unusable.
+        if (/googlevideo\.com/.test(streamUrl)) { lastError = `${host}: returned unproxied CDN URL`; continue; }
+
+        $('ytStatus').textContent = `Downloading from ${host}…`;
         try {
-          const r = await fetch(audioStreams[0].url, { signal: AbortSignal.timeout(90000) });
-          if (!r.ok) continue;
+          const r = await fetch(streamUrl, { signal: AbortSignal.timeout(90000) });
+          if (!r.ok) { lastError = `${host}: stream HTTP ${r.status}`; continue; }
           const blob = await r.blob();
-          if (blob.size < 8192) continue;
+          if (blob.size < 8192) { lastError = `${host}: response too small (${blob.size}B)`; continue; }
           return { blob, title: data.title };
-        } catch (_) { continue; }
+        } catch (e) { lastError = `${host}: ${e.message}`; continue; }
       }
 
-      throw new Error('All sources failed — check your URL or use file upload');
+      throw new Error(lastError);
     }
 
     /* ---------- File handlers ---------- */
