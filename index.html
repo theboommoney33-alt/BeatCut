@@ -95,6 +95,12 @@
           <button class="btn tap" id="tapBtn" title="Tap along to find the BPM">TAP<br/><small>tempo</small></button>
         </div>
 
+        <div class="field" id="songStartField" hidden>
+          <label for="songStartSlider">Song start — <strong id="songStartLabel">0:00</strong></label>
+          <input type="range" id="songStartSlider" min="0" max="300" step="1" value="0" />
+          <div class="range-meta"><span>0:00</span><span id="songStartMax">—</span></div>
+        </div>
+
         <div class="field">
           <label for="beatsPerCut">Cut every <strong id="beatsLabel">8</strong> beats</label>
           <input type="range" id="beatsPerCut" min="1" max="64" step="1" value="8" />
@@ -119,17 +125,52 @@
         </div>
 
         <div class="field">
-          <label for="aspect">Output shape</label>
-          <select id="aspect">
-            <option value="16:9">Landscape 16:9 (1280×720)</option>
-            <option value="9:16">Vertical 9:16 (720×1280)</option>
-            <option value="1:1">Square 1:1 (720×720)</option>
-            <option value="4:5">Portrait 4:5 (720×900)</option>
-          </select>
+          <label>Output shape</label>
+          <input type="range" id="aspectSlider" min="0" max="3" step="1" value="3" />
+          <div class="aspect-ticks">
+            <span>9:16</span><span>4:5</span><span>1:1</span><span>16:9</span>
+          </div>
+          <div class="range-meta">
+            <span></span><span id="aspectLabel">1280 × 720 — Landscape (YouTube)</span><span></span>
+          </div>
         </div>
 
         <div class="field checkbox">
           <label><input type="checkbox" id="punchFx" /> Beat punch zoom on the beat (off by default — leaves media untouched)</label>
+        </div>
+
+        <div class="field checkbox">
+          <label><input type="checkbox" id="kenBurnsCheck" /> Ken Burns effect (slow zoom &amp; pan on photos)</label>
+        </div>
+        <div class="field" id="kenBurnsField" hidden>
+          <label for="kenBurnsSlider">Ken Burns intensity</label>
+          <input type="range" id="kenBurnsSlider" min="1" max="100" step="1" value="50" />
+          <div class="range-meta"><span>subtle</span><span>strong</span></div>
+        </div>
+        <div class="field checkbox" id="kenBurnsCenterWrap" hidden>
+          <label><input type="checkbox" id="kenBurnsCenterCheck" /> Center zoom only (no pan)</label>
+        </div>
+      </div>
+      <!-- 4. Transitions -->
+      <div class="card">
+        <div class="card-head">
+          <h2><span class="step">4</span> Transitions</h2>
+        </div>
+        <div class="field">
+          <label>Between clips</label>
+          <div class="trans-grid" id="transGrid">
+            <button class="trans-btn active" data-trans="cut">✂ Cut</button>
+            <button class="trans-btn" data-trans="dissolve">⬡ Dissolve</button>
+            <button class="trans-btn" data-trans="fade">◌ Fade</button>
+            <button class="trans-btn" data-trans="flash">✦ Flash</button>
+            <button class="trans-btn" data-trans="zoom">⊕ Zoom</button>
+            <button class="trans-btn" data-trans="slide">→ Slide</button>
+          </div>
+        </div>
+        <div class="field" id="transDurField" hidden>
+          <label for="transDuration">Duration — <strong id="transDurLabel">0.5s</strong></label>
+          <input type="range" id="transDuration" min="1" max="15" step="1" value="5" />
+          <div class="range-meta"><span>0.1s</span><span>1.5s</span></div>
         </div>
       </div>
     </section>
@@ -156,7 +197,7 @@
 
       <div class="export-bar">
         <button class="btn export" id="exportBtn" disabled>⬇ Export Video</button>
-        <span class="export-note" id="exportNote">Exports a .webm recorded in real time (plays through once).</span>
+        <span class="export-note" id="exportNote">Records in real time then converts to MP4 (backend required) — plays through once.</span>
         <a id="downloadLink" class="btn ghost" hidden>Save file</a>
       </div>
       <div class="progress" id="exportProgress" hidden>

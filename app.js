@@ -27,6 +27,14 @@
     '4:5':  [720, 900],
   };
 
+  // Ordered portrait → landscape for the aspect slider (index matches slider value)
+  const ASPECT_SLIDER = [
+    { key: '9:16', label: '720 × 1280 — Vertical (TikTok · Reels · Shorts)' },
+    { key: '4:5',  label: '720 × 900 — Portrait (Instagram)' },
+    { key: '1:1',  label: '720 × 720 — Square' },
+    { key: '16:9', label: '1280 × 720 — Landscape (YouTube)' },
+  ];
+
   /* ---------------------------------------------------------- */
   /*  MediaLibrary                                              */
   /* ---------------------------------------------------------- */
@@ -132,7 +140,11 @@
     constructor(canvas) {
       this.canvas = canvas;
       this.ctx = canvas.getContext('2d');
-      this.punch = false; // off by default — media shown exactly as submitted
+      this.punch = false;
+      this.kenBurns = 0;       // 0 = off, 0..1 = intensity
+      this.kenBurnsCenter = false;
+      this.transitionType = 'cut';
+      this.transitionDuration = 0.5; // seconds
     }
 
     resize(w, h) { this.canvas.width = w; this.canvas.height = h; }
@@ -154,18 +166,138 @@
       ctx.drawImage(source, dx, dy, dw, dh);
     }
 
-    render(item, beatPhase) {
-      this.clear();
+    // Ken Burns: slow zoom + pan on images, cycling through 4 presets by clip index.
+    // Uses contain scale so the image aspect ratio is always preserved.
+    drawKenBurns(source, sw, sh, progress, index, beatPhase) {
+      const { ctx, canvas } = this;
+      if (!sw || !sh) return;
+      const I = this.kenBurns;
+
+      // [startZoom, endZoom, panDirX, panDirY] — at I=1 the zoom range is ±12%
+      const presets = [
+        [1.00, 1.12,  1,  0],
+        [1.00, 1.12,  0, -1],
+        [1.12, 1.00, -1,  0],
+        [1.12, 1.00,  0,  1],
+      ];
+      const [zs, ze, pdx, pdy] = presets[index % 4];
+
+      const startZoom = 1 + (zs - 1) * I;
+      const endZoom   = 1 + (ze - 1) * I;
+      let zoom = startZoom + (endZoom - startZoom) * progress;
+      if (this.punch) zoom *= 1 + 0.06 * (1 - Math.min(beatPhase / 0.5, 1));
+
+      // Contain scale: full image always visible, aspect ratio preserved
+      const containScale = Math.min(canvas.width / sw, canvas.height / sh) * zoom;
+      const dw = sw * containScale, dh = sh * containScale;
+
+      const panProgress = ze > zs ? progress : (1 - progress);
+      const maxPan = I * 0.04;
+      const panX = this.kenBurnsCenter ? 0 : pdx * maxPan * canvas.width  * panProgress;
+      const panY = this.kenBurnsCenter ? 0 : pdy * maxPan * canvas.height * panProgress;
+
+      ctx.drawImage(source, (canvas.width - dw) / 2 + panX, (canvas.height - dh) / 2 + panY, dw, dh);
+    }
+
+    // Draw one item without clearing — used by render() and renderTransition().
+    _drawSingle(item, clipProgress, clipIndex, beatPhase) {
       if (!item || !item.ready || !item.el) return;
-
-      // Default zoom is 1 (untouched). Only the optional beat-punch toggle
-      // applies a brief zoom pulse.
-      let zoom = 1;
-      if (this.punch) zoom = 1 + 0.06 * (1 - Math.min(beatPhase / 0.5, 1));
-
       const sw = item.type === 'image' ? item.el.naturalWidth : item.el.videoWidth;
       const sh = item.type === 'image' ? item.el.naturalHeight : item.el.videoHeight;
-      this.drawContain(item.el, sw, sh, zoom);
+      if (this.kenBurns > 0 && item.type === 'image') {
+        this.drawKenBurns(item.el, sw, sh, clipProgress, clipIndex, beatPhase);
+      } else {
+        let zoom = 1;
+        if (this.punch) zoom = 1 + 0.06 * (1 - Math.min(beatPhase / 0.5, 1));
+        this.drawContain(item.el, sw, sh, zoom);
+      }
+    }
+
+    render(item, beatPhase, clipProgress = 0, clipIndex = 0) {
+      this.clear();
+      this._drawSingle(item, clipProgress, clipIndex, beatPhase);
+    }
+
+    renderTransition(fromItem, toItem, progress, fromClipProg, fromIdx, toClipProg, toIdx, beatPhase) {
+      const { ctx, canvas } = this;
+      this.clear();
+      switch (this.transitionType) {
+        case 'dissolve':
+          ctx.globalAlpha = 1 - progress;
+          this._drawSingle(fromItem, fromClipProg, fromIdx, beatPhase);
+          ctx.globalAlpha = progress;
+          this._drawSingle(toItem, toClipProg, toIdx, beatPhase);
+          ctx.globalAlpha = 1;
+          break;
+        case 'fade':
+          if (progress < 0.5) {
+            ctx.globalAlpha = 1 - progress * 2;
+            this._drawSingle(fromItem, fromClipProg, fromIdx, beatPhase);
+            ctx.globalAlpha = 1;
+          } else {
+            ctx.globalAlpha = (progress - 0.5) * 2;
+            this._drawSingle(toItem, toClipProg, toIdx, beatPhase);
+            ctx.globalAlpha = 1;
+          }
+          break;
+        case 'flash': {
+          const white = () => {
+            ctx.fillStyle = '#fff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+          };
+          if (progress < 0.35) {
+            this._drawSingle(fromItem, fromClipProg, fromIdx, beatPhase);
+            ctx.globalAlpha = progress / 0.35;
+            white();
+            ctx.globalAlpha = 1;
+          } else {
+            this._drawSingle(toItem, toClipProg, toIdx, beatPhase);
+            ctx.globalAlpha = 1 - (progress - 0.35) / 0.65;
+            white();
+            ctx.globalAlpha = 1;
+          }
+          break;
+        }
+        case 'zoom':
+          if (progress < 0.5) {
+            const p = progress * 2;
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.scale(1 + p * 0.4, 1 + p * 0.4);
+            ctx.translate(-canvas.width / 2, -canvas.height / 2);
+            ctx.globalAlpha = 1 - p;
+            this._drawSingle(fromItem, fromClipProg, fromIdx, beatPhase);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+          } else {
+            const p = (progress - 0.5) * 2;
+            const z = 1 + (1 - p) * 0.4;
+            ctx.save();
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.scale(z, z);
+            ctx.translate(-canvas.width / 2, -canvas.height / 2);
+            ctx.globalAlpha = p;
+            this._drawSingle(toItem, toClipProg, toIdx, beatPhase);
+            ctx.restore();
+            ctx.globalAlpha = 1;
+          }
+          break;
+        case 'slide': {
+          // Wipe: from clip revealed on left side, to clip appears from right
+          const seam = Math.round((1 - progress) * canvas.width);
+          ctx.save();
+          ctx.beginPath(); ctx.rect(0, 0, seam, canvas.height); ctx.clip();
+          this._drawSingle(fromItem, fromClipProg, fromIdx, beatPhase);
+          ctx.restore();
+          ctx.save();
+          ctx.beginPath(); ctx.rect(seam, 0, canvas.width - seam, canvas.height); ctx.clip();
+          this._drawSingle(toItem, toClipProg, toIdx, beatPhase);
+          ctx.restore();
+          break;
+        }
+        default:
+          this._drawSingle(toItem, toClipProg, toIdx, beatPhase);
+      }
     }
   }
 
@@ -347,6 +479,16 @@
       this.duration = 0;       // total output length (seconds)
       this.durationMode = 'passes'; // 'passes' | 'song' | 'custom'
       this.passesTarget = 2;   // default: go through every photo twice
+      this.songStart = 0;      // audio start offset (seconds)
+
+      // When songStart > 0, browser loop goes back to 0 instead of songStart.
+      // Handle looping manually via 'ended'.
+      this.audio.addEventListener('ended', () => {
+        if ((this.playing || this.exporting) && this.songStart > 0) {
+          try { this.audio.currentTime = this.songStart; } catch (_) {}
+          this.audio.play().catch(() => {});
+        }
+      });
 
       this._loop = this._loop.bind(this);
       this._bindUI();
@@ -392,8 +534,40 @@
         $('beatsLabel').textContent = this.engine.beatsPerCut;
         this._updateCutLabel();
       });
-      $('aspect').addEventListener('change', (e) => this._setAspect(e.target.value));
+      $('aspectSlider').addEventListener('input', (e) => {
+        const entry = ASPECT_SLIDER[+e.target.value];
+        this._setAspect(entry.key);
+        $('aspectLabel').textContent = entry.label;
+      });
+      $('aspectLabel').textContent = ASPECT_SLIDER[+$('aspectSlider').value].label;
       $('punchFx').addEventListener('change', (e) => { this.renderer.punch = e.target.checked; });
+      $('kenBurnsCheck').addEventListener('change', (e) => {
+        $('kenBurnsField').hidden = !e.target.checked;
+        $('kenBurnsCenterWrap').hidden = !e.target.checked;
+        this.renderer.kenBurns = e.target.checked ? ($('kenBurnsSlider').value / 100) : 0;
+        if (!this.playing) this._drawFrame();
+      });
+      $('kenBurnsSlider').addEventListener('input', (e) => {
+        this.renderer.kenBurns = $('kenBurnsCheck').checked ? (e.target.value / 100) : 0;
+        if (!this.playing) this._drawFrame();
+      });
+      $('kenBurnsCenterCheck').addEventListener('change', (e) => {
+        this.renderer.kenBurnsCenter = e.target.checked;
+        if (!this.playing) this._drawFrame();
+      });
+      $('transGrid').addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-trans]');
+        if (!btn) return;
+        this.renderer.transitionType = btn.dataset.trans;
+        [...$('transGrid').querySelectorAll('.trans-btn')].forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        $('transDurField').hidden = btn.dataset.trans === 'cut';
+      });
+      $('transDuration').addEventListener('input', (e) => {
+        const secs = +e.target.value * 0.1;
+        this.renderer.transitionDuration = secs;
+        $('transDurLabel').textContent = secs.toFixed(1) + 's';
+      });
 
       // Video length
       $('lengthInput').addEventListener('input', (e) => {
@@ -441,11 +615,21 @@
       this.audio.addEventListener('loadedmetadata', () => {
         this._recomputeDuration();
         this._refreshState();
+        this._updateSongStartField();
       });
       this.audio.addEventListener('durationchange', () => {
         if (isFinite(this.audio.duration) && this.audio.duration > 0) {
           this._recomputeDuration();
           this._refreshState();
+          this._updateSongStartField();
+        }
+      });
+
+      $('songStartSlider').addEventListener('input', (e) => {
+        this.songStart = +e.target.value;
+        $('songStartLabel').textContent = fmtTime(this.songStart);
+        if (!this.playing) {
+          try { this.audio.currentTime = this.songStart; } catch (_) {}
         }
       });
 
@@ -802,9 +986,22 @@
       this._updateCutLabel();
     }
 
+    _updateSongStartField() {
+      const dur = this.audio.duration;
+      if (!isFinite(dur) || dur <= 0) return;
+      const slider = $('songStartSlider');
+      const maxOffset = Math.max(0, dur - 1);
+      slider.max = maxOffset.toFixed(1);
+      if (+slider.value > maxOffset) { slider.value = 0; this.songStart = 0; }
+      $('songStartMax').textContent = fmtTime(dur);
+      $('songStartField').hidden = false;
+    }
+
     _audioPosFor(t) {
       const songDur = this.audio.duration;
-      return (isFinite(songDur) && songDur > 0) ? (t % songDur) : t;
+      if (!isFinite(songDur) || songDur <= 0) return this.songStart + t;
+      const loopLen = Math.max(0.1, songDur - this.songStart);
+      return this.songStart + (t % loopLen);
     }
 
     // Work out the total output length from the current mode.
@@ -877,9 +1074,10 @@
       this.playing = true;
       $('playBtn').textContent = '❚❚ Pause';
 
-      // If the video is longer than the song, loop the song so there's always sound.
+      // If the video is longer than the remaining song, loop.
+      // When songStart > 0 we manage looping via the 'ended' listener (browser loop resets to 0).
       const songDur = this.audio.duration;
-      this.audio.loop = isFinite(songDur) && this.duration > songDur + 0.1;
+      this.audio.loop = this.songStart === 0 && isFinite(songDur) && this.duration > songDur + 0.1;
       try { this.audio.currentTime = this._audioPosFor(this.clock); } catch (_) {}
       this.audio.play().catch(() => {});
 
@@ -901,7 +1099,7 @@
       const wasExporting = this.exporting;
       this.pause();
       this.clock = 0;
-      try { this.audio.currentTime = 0; } catch (_) {}
+      try { this.audio.currentTime = this.songStart; } catch (_) {}
       this.activeIndex = -1;
       this._drawFrame();
       $('seek').value = 0;
@@ -949,8 +1147,53 @@
       if (items.length === 0) { this.renderer.clear(); return; }
 
       const t = this.clock;
-      const idx = this.engine.clipIndexAt(t, items.length);
+      const secPerCut = this.engine.secondsPerCut;
+      const beatPhase = this.engine.beatPhase(t);
+      const transType = this.renderer.transitionType;
+      const transD    = this.renderer.transitionDuration;
 
+      // Check if we're inside a transition window around a cut point
+      if (transType !== 'cut' && transD > 0 && secPerCut > 0 && items.length > 1) {
+        const cutIndex = Math.round(t / secPerCut);
+        const cutTime  = cutIndex * secPerCut;
+        const halfTrans = transD / 2;
+
+        if (cutTime > 0 && cutTime < this.duration && Math.abs(t - cutTime) <= halfTrans) {
+          const transProgress = (t - cutTime + halfTrans) / transD;
+          const fromIdx = this.engine.clipIndexAt(cutTime - 0.001, items.length);
+          const toIdx   = this.engine.clipIndexAt(cutTime + 0.001, items.length);
+
+          // Switch active video at the midpoint so the to-clip audio/video starts
+          if (toIdx !== this.activeIndex && transProgress >= 0.5) {
+            this._pauseActiveVideo();
+            this.activeIndex = toIdx;
+            const toItem = items[toIdx];
+            if (toItem && toItem.type === 'video' && toItem.el) {
+              try { toItem.el.currentTime = 0; } catch (_) {}
+              if (this.playing || this.exporting) toItem.el.play().catch(() => {});
+            }
+          }
+
+          // clipProgress for each side: from ends at 1, to starts at 0
+          const fromClipProg = Math.min(1, 1 + (t - cutTime) / secPerCut);
+          const toClipProg   = Math.max(0, (t - cutTime) / secPerCut);
+
+          this.renderer.renderTransition(
+            items[fromIdx], items[toIdx],
+            transProgress,
+            fromClipProg, fromIdx,
+            toClipProg,   toIdx,
+            beatPhase
+          );
+          const dot = $('beatDot');
+          if (this.engine.isBeatHit(t)) dot.classList.add('hit');
+          else dot.classList.remove('hit');
+          return;
+        }
+      }
+
+      // Normal (non-transition) frame
+      const idx = this.engine.clipIndexAt(t, items.length);
       if (idx !== this.activeIndex) {
         this._pauseActiveVideo();
         this.activeIndex = idx;
@@ -962,9 +1205,9 @@
       }
 
       const item = items[this.activeIndex];
-      this.renderer.render(item, this.engine.beatPhase(t));
+      const clipProgress = secPerCut > 0 ? (t % secPerCut) / secPerCut : 0;
+      this.renderer.render(item, beatPhase, clipProgress, this.activeIndex);
 
-      // beat indicator dot
       const dot = $('beatDot');
       if (this.engine.isBeatHit(t)) dot.classList.add('hit');
       else dot.classList.remove('hit');
@@ -992,8 +1235,8 @@
       this.clock = 0;
       this.activeIndex = -1;
       const songDur = this.audio.duration;
-      this.audio.loop = isFinite(songDur) && this.duration > songDur + 0.1;
-      try { this.audio.currentTime = 0; } catch (_) {}
+      this.audio.loop = this.songStart === 0 && isFinite(songDur) && this.duration > songDur + 0.1;
+      try { this.audio.currentTime = this.songStart; } catch (_) {}
 
       const { rec, done } = this.exporter.start(30);
       this._activeRecorder = rec;
@@ -1023,22 +1266,47 @@
       this.exporting = false;
 
       if (rec.state !== 'inactive') rec.stop();
-      const blob = await this._exportDone;
+      const webmBlob = await this._exportDone;
 
-      const url = URL.createObjectURL(blob);
+      // Try to convert to MP4 via the local backend (Docker).
+      let finalBlob = webmBlob;
+      let ext = 'webm';
+      try {
+        const health = await fetch('http://localhost:7474/health', { signal: AbortSignal.timeout(2000) });
+        if (health.ok) {
+          $('exportLabel').textContent = 'Converting to MP4…';
+          $('exportBar').style.width = '95%';
+
+          const form = new FormData();
+          form.append('file', webmBlob, 'recording.webm');
+
+          const res = await fetch('http://localhost:7474/convert', {
+            method: 'POST',
+            body: form,
+            signal: AbortSignal.timeout(600_000),
+          });
+          if (res.ok) {
+            finalBlob = await res.blob();
+            ext = 'mp4';
+          }
+        }
+      } catch (_) {}
+
+      const url = URL.createObjectURL(finalBlob);
       const link = $('downloadLink');
       link.href = url;
       const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-      link.download = `beatcut-${stamp}.webm`;
-      link.textContent = '⬇ Save your video';
+      link.download = `beatcut-${stamp}.${ext}`;
+      link.textContent = `⬇ Save your video (.${ext})`;
       link.hidden = false;
 
       $('exportBar').style.width = '100%';
-      $('exportLabel').textContent = 'Done! Click “Save your video”.';
+      $('exportLabel').textContent = ext === 'mp4'
+        ? 'Done! MP4 ready — works on TikTok, Instagram & iPhone.'
+        : 'Done! (start the backend for MP4 output)';
       $('exportBtn').disabled = false;
       $('statusText').textContent = 'Export complete.';
 
-      // Auto-trigger download as a convenience.
       link.click();
     }
   }

@@ -256,6 +256,38 @@ html, body {
 .yt-input::placeholder { color: var(--muted); }
 .yt-input:focus { outline: none; border-color: var(--accent-2); }
 
+/* ---------- Aspect ratio slider ticks ---------- */
+.aspect-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--muted);
+  margin-top: 4px;
+  padding: 0 2px;
+}
+
+/* ---------- Transition selector ---------- */
+.trans-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 6px;
+  margin-top: 4px;
+}
+.trans-btn {
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 8px 4px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: inherit;
+  transition: background .12s, border-color .12s;
+  text-align: center;
+}
+.trans-btn:hover { background: #2f3550; }
+.trans-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+
 /* scrollbar */
 .inputs::-webkit-scrollbar { width: 8px; }
 .inputs::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }

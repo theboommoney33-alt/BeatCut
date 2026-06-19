@@ -1,6 +1,6 @@
 from flask import Flask, request, Response
 from flask_cors import CORS
-import yt_dlp, tempfile, shutil, os
+import yt_dlp, tempfile, shutil, os, subprocess
 
 app = Flask(__name__)
 CORS(app, expose_headers=['X-Title'])
@@ -37,6 +37,45 @@ def audio():
             data,
             mimetype=f'audio/{ext}',
             headers={'X-Title': title.encode('ascii', 'replace').decode()}
+        )
+    except Exception as e:
+        return str(e), 500
+    finally:
+        shutil.rmtree(tmpdir, ignore_errors=True)
+
+@app.route('/convert', methods=['POST'])
+def convert():
+    webm = request.files.get('file')
+    if not webm:
+        return 'no file', 400
+
+    tmpdir = tempfile.mkdtemp()
+    try:
+        in_path  = os.path.join(tmpdir, 'input.webm')
+        out_path = os.path.join(tmpdir, 'output.mp4')
+        webm.save(in_path)
+
+        result = subprocess.run(
+            [
+                'ffmpeg', '-y', '-i', in_path,
+                '-c:v', 'libx264', '-preset', 'fast', '-crf', '22',
+                '-c:a', 'aac', '-b:a', '192k',
+                '-movflags', '+faststart',
+                out_path,
+            ],
+            capture_output=True,
+            timeout=600,
+        )
+        if result.returncode != 0:
+            return result.stderr.decode(errors='replace'), 500
+
+        with open(out_path, 'rb') as f:
+            data = f.read()
+
+        return Response(
+            data,
+            mimetype='video/mp4',
+            headers={'Content-Disposition': 'attachment; filename="beatcut.mp4"'},
         )
     except Exception as e:
         return str(e), 500
