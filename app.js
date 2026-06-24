@@ -480,6 +480,8 @@
       this.durationMode = 'passes'; // 'passes' | 'song' | 'custom'
       this.passesTarget = 2;   // default: go through every photo twice
       this.songStart = 0;      // audio start offset (seconds)
+      this.fadeOut = false;    // fade music out at end
+      this.fadeOutDuration = 3; // seconds
 
       // When songStart > 0, browser loop goes back to 0 instead of songStart.
       // Handle looping manually via 'ended'.
@@ -540,6 +542,15 @@
         $('aspectLabel').textContent = entry.label;
       });
       $('aspectLabel').textContent = ASPECT_SLIDER[+$('aspectSlider').value].label;
+      $('fadeOutCheck').addEventListener('change', (e) => {
+        this.fadeOut = e.target.checked;
+        $('fadeOutField').hidden = !e.target.checked;
+      });
+      $('fadeOutSlider').addEventListener('input', (e) => {
+        this.fadeOutDuration = +e.target.value;
+        $('fadeOutLabel').textContent = `${e.target.value}s`;
+      });
+
       $('punchFx').addEventListener('change', (e) => { this.renderer.punch = e.target.checked; });
       $('kenBurnsCheck').addEventListener('change', (e) => {
         $('kenBurnsField').hidden = !e.target.checked;
@@ -1099,6 +1110,7 @@
       const wasExporting = this.exporting;
       this.pause();
       this.clock = 0;
+      this.audio.volume = 1;
       try { this.audio.currentTime = this.songStart; } catch (_) {}
       this.activeIndex = -1;
       this._drawFrame();
@@ -1112,6 +1124,7 @@
       this.playing = false;
       this._lastTs = null;
       $('playBtn').textContent = '▶ Play';
+      this.audio.volume = 1;
       this.audio.pause();
       this._pauseActiveVideo();
       cancelAnimationFrame(this.rafId);
@@ -1122,6 +1135,14 @@
       if (!this.playing) return;
       if (this._lastTs != null) this.clock += (ts - this._lastTs) / 1000;
       this._lastTs = ts;
+
+      // Volume fade-out
+      if (this.fadeOut && this.duration > 0) {
+        const fadeStart = this.duration - this.fadeOutDuration;
+        this.audio.volume = this.clock >= fadeStart
+          ? Math.max(0, 1 - (this.clock - fadeStart) / this.fadeOutDuration)
+          : 1;
+      }
 
       if (this.clock >= this.duration) {
         this.clock = this.duration;

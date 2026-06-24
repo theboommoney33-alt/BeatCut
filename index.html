@@ -79,6 +79,14 @@
           <button class="btn tiny" id="detectBpmBtn" disabled>🔍 Auto-detect BPM</button>
           <span class="detect-status" id="detectStatus">BPM is found automatically when you add a song.</span>
         </div>
+        <div class="field checkbox" style="margin-top:10px">
+          <label><input type="checkbox" id="fadeOutCheck" /> Fade music out at end</label>
+        </div>
+        <div class="field" id="fadeOutField" hidden>
+          <label for="fadeOutSlider">Fade duration — <strong id="fadeOutLabel">3s</strong></label>
+          <input type="range" id="fadeOutSlider" min="1" max="10" step="1" value="3" />
+          <div class="range-meta"><span>1s</span><span>10s</span></div>
+        </div>
       </div>
 
       <!-- 3. BPM + frequency -->
